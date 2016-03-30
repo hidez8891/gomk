@@ -1,0 +1,2 @@
+# gomk
+simple build tool
