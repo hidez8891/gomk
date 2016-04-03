@@ -21,20 +21,48 @@ func Parse(r io.Reader) (rules *Rules, err error) {
 		return
 	}
 
-	rules = o.rules
+	rules = &Rules{
+		o.firsts,
+		o.rules,
+	}
 	return
 }
 
+type Rule struct {
+	Name     string
+	Depends  []string
+	Commands []Command
+}
+
+type Command struct {
+	Exestr   string
+	NeedEcho bool
+}
+
 type Rules struct {
-	Firsts []string
-	Rules  map[string][]string
+	first_targets []string
+	rule_map      map[string]Rule
+}
+
+func (r *Rules) Get(name string) (Rule, bool) {
+	rule, ok := r.rule_map[name]
+	return rule, ok
+}
+
+func (r *Rules) Rules() map[string]Rule {
+	return r.rule_map
+}
+
+func (r *Rules) Firsts() []string {
+	return r.first_targets
 }
 
 type Parser struct {
 	scanner *bufio.Scanner
 	buffer  []string
 	varmap  map[string]string
-	rules   *Rules
+	rules   map[string]Rule
+	firsts  []string
 }
 
 func MakeParser(r io.Reader) *Parser {
@@ -42,10 +70,8 @@ func MakeParser(r io.Reader) *Parser {
 		bufio.NewScanner(r),
 		[]string{},
 		map[string]string{},
-		&Rules{
-			[]string{},
-			map[string][]string{},
-		},
+		map[string]Rule{},
+		[]string{},
 	}
 }
 
@@ -123,64 +149,75 @@ func (o *Parser) preprocess() error {
 	o.varmap = varmap
 
 	// resolve rule reference
-	rules := map[string][]string{}
-	for k, ary := range o.rules.Rules {
-		// resolve exec
-		exec := []string{}
-		for _, v := range ary {
+	rules := map[string]Rule{}
+	for name, rule := range o.rules {
+		// resolve depends
+		depends := []string{}
+		for _, depend := range rule.Depends {
+			depends = append(depends, o.resolveReference(depend))
+		}
+
+		// resolve command
+		commands := []Command{}
+		for _, cmd := range rule.Commands {
+			v := cmd.Exestr
 			w := o.resolveReference(v)
-			exec = append(exec, w)
+			commands = append(commands, Command{w, cmd.NeedEcho})
 		}
 
 		// resolve rule name
-		k = o.resolveReference(k)
+		name = o.resolveReference(name)
 
 		// update
-		if _, exist := rules[k]; exist {
-			return errors.New("Error: Duplicate rule define " + k)
+		if _, exist := rules[name]; exist {
+			return errors.New("Error: Duplicate rule define " + name)
 		}
-		rules[k] = exec
+		rules[name] = Rule{name, depends, commands}
 	}
-	o.rules.Rules = rules
+	o.rules = rules
 
 	// resolve targets reference
 	firsts := []string{}
-	for _, k := range o.rules.Firsts {
+	for _, name := range o.firsts {
 		// resolve rule name
-		k = o.resolveReference(k)
-		firsts = append(firsts, k)
+		name = o.resolveReference(name)
+		firsts = append(firsts, name)
 	}
-	o.rules.Firsts = firsts
+	o.firsts = firsts
 
 	return nil
 }
 
 func (o *Parser) makeRule() error {
-	rules := map[string][]string{}
-
 	// parse & construct rules
-	for k, ary := range o.rules.Rules {
-		depends := strings.Fields(ary[0])
-		ary[0] = strings.Join(depends, " ")
+	rules := map[string]Rule{}
+	for name, rule := range o.rules {
+		depends := []string{}
+		for _, mix_depend := range rule.Depends {
+			for _, d := range strings.Fields(mix_depend) {
+				depends = append(depends, d)
+			}
+		}
+		rule.Depends = depends
 
-		targets := strings.Fields(k)
-		for _, t := range targets {
+		for _, t := range strings.Fields(name) {
 			if _, exist := rules[t]; exist {
 				return errors.New("Error: Duplicate rule define " + t)
 			}
-			rules[t] = ary
+			rule.Name = t
+			rules[t] = rule
 		}
 	}
-	o.rules.Rules = rules
+	o.rules = rules
 
 	// parse first targets
 	firsts := []string{}
-	for _, k := range o.rules.Firsts {
+	for _, k := range o.firsts {
 		for _, target := range strings.Fields(k) {
 			firsts = append(firsts, target)
 		}
 	}
-	o.rules.Firsts = firsts
+	o.firsts = firsts
 
 	return nil
 }
@@ -202,10 +239,11 @@ func (o *Parser) parseRule(lhs, rhs string) error {
 	lhs = strings.TrimSpace(lhs)
 	rhs = strings.TrimSpace(rhs)
 
-	if _, exist := o.rules.Rules[lhs]; exist {
+	if _, exist := o.rules[lhs]; exist {
 		return errors.New("Error: Duplicate rule define " + lhs)
 	}
-	exec := []string{rhs}
+	depends := []string{rhs}
+	commands := []Command{}
 
 	for o.inputHasNext() {
 		line := o.inputText()
@@ -223,13 +261,14 @@ func (o *Parser) parseRule(lhs, rhs string) error {
 			continue
 		}
 
-		exec = append(exec, line)
+		commands = append(commands, Command{line, true})
 	}
 
-	if len(o.rules.Firsts) == 0 {
-		o.rules.Firsts = append(o.rules.Firsts, lhs)
+	if len(o.firsts) == 0 {
+		o.firsts = append(o.firsts, lhs)
 	}
-	o.rules.Rules[lhs] = exec
+	o.rules[lhs] = Rule{lhs, depends, commands}
+
 	return nil
 }
 

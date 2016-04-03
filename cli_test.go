@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -64,50 +65,46 @@ func TestRun_fileFlag(t *testing.T) {
 }
 
 func TestRun_targetRules(t *testing.T) {
-	tester := func(exe_str, expected string) bool {
+	tester := func(exe_str, expected string) error {
 		outStream, errStream := new(bytes.Buffer), new(bytes.Buffer)
 		cli := &CLI{outStream: outStream, errStream: errStream}
-		result := true
 
 		args := strings.Split(exe_str, " ")
 		status := cli.Run(args)
 
 		if status != ExitCodeOK {
-			t.Errorf("expected %d to eq %d", status, ExitCodeOK)
-			result = false
+			return errors.New(fmt.Sprintf("expected %d to eq %d", status, ExitCodeOK))
 		}
 
 		if outStream.String() != expected {
-			t.Errorf("expected %q to eq %q", outStream.String(), expected)
-			result = false
+			return errors.New(fmt.Sprintf("expected %q to eq %q", outStream.String(), expected))
 		}
 
 		if errStream.String() != "" {
-			t.Errorf("expected %q to eq %q", errStream.String(), "")
-			result = false
+			return errors.New(fmt.Sprintf("expected %q to eq %q", errStream.String(), ""))
 		}
 
-		return result
+		return nil
 	}
 
 	// default rule
 	exe_str := "./gomk -f test/test002.mk"
 	expected := "echo echo1\necho1\necho echo2\necho2\n"
-	if ok := tester(exe_str, expected); !ok {
-		t.Skip()
+	if err := tester(exe_str, expected); err != nil {
+		t.Error(err)
 	}
 
 	// specify
 	exe_str = "./gomk -f test/test002.mk echo2"
 	expected = "echo echo2\necho2\n"
-	if ok := tester(exe_str, expected); !ok {
-		t.Skip()
+	if err := tester(exe_str, expected); err != nil {
+		t.Error(err)
 	}
 
 	// set rules
 	exe_str = "./gomk -f test/test002.mk echo2 echo1"
 	expected = "echo echo2\necho2\necho echo1\necho1\n"
-	if ok := tester(exe_str, expected); !ok {
-		t.Skip()
+	if err := tester(exe_str, expected); err != nil {
+		t.Error(err)
 	}
 }

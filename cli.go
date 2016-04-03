@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 )
 
 import (
@@ -72,7 +71,7 @@ func (cli *CLI) Run(args []string) int {
 		fmt.Fprintf(cli.errStream, "%s\n", err)
 		return ExitCodeError
 	}
-	if len(rules.Rules) == 0 {
+	if len(rules.Rules()) == 0 {
 		fmt.Fprintf(cli.errStream, "Not defined make rule\n")
 		return ExitCodeError
 	}
@@ -80,12 +79,12 @@ func (cli *CLI) Run(args []string) int {
 	// Get targets
 	targets := flags.Args()
 	if len(targets) == 0 {
-		targets = rules.Firsts
+		targets = rules.Firsts()
 	}
 
 	// Run targets
 	for _, target := range targets {
-		if err := cli.runRules(rules.Rules, target); err != nil {
+		if err := cli.runRules(rules, target); err != nil {
 			fmt.Fprintf(cli.errStream, "%s\n", err)
 			return ExitCodeError
 		}
@@ -117,25 +116,24 @@ func closeMakefile(fd *os.File) {
 	fd.Close()
 }
 
-func (cli *CLI) runRules(rules map[string][]string, target string) error {
-	cmds, ok := rules[target]
+func (cli *CLI) runRules(rules *parser.Rules, target string) error {
+	rule, ok := rules.Get(target)
 	if !ok {
 		return errors.New("Not found make rule " + target)
 	}
 
-	depends := strings.Fields(cmds[0])
-	cmds = cmds[1:]
-
-	for _, depend := range depends {
+	for _, depend := range rule.Depends {
 		if err := cli.runRules(rules, depend); err != nil {
 			return err
 		}
 	}
 
 	runner := runner.New(cli.outStream, cli.errStream)
-	for _, cmd := range cmds {
-		fmt.Fprintf(cli.outStream, "%s\n", cmd)
-		if err := runner.Run(cmd); err != nil {
+	for _, cmd := range rule.Commands {
+		if cmd.NeedEcho {
+			fmt.Fprintf(cli.outStream, "%s\n", cmd.Exestr)
+		}
+		if err := runner.Run(cmd.Exestr); err != nil {
 			return err
 		}
 	}
