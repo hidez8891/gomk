@@ -41,4 +41,11 @@ func TestRun_Run(t *testing.T) {
 	if !tester(cmd, expected_out, "") {
 		t.Skip()
 	}
+
+	// have double quote
+	cmd = `echo "HOGE"`
+	expected_out = "\"HOGE\"\n"
+	if !tester(cmd, expected_out, "") {
+		t.Skip()
+	}
 }

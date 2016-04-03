@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"syscall"
 )
 
 type Runner struct {
@@ -16,8 +17,9 @@ func New(out, err io.Writer) *Runner {
 }
 
 func (r *Runner) Run(command string) error {
-	args := []string{"cmd", "/C", command}
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command("cmd")
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.CmdLine = "/C " + command
 
 	out_reader, err := cmd.StdoutPipe()
 	if err != nil {
