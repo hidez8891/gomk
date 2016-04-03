@@ -94,16 +94,23 @@ func TestRun_targetRules(t *testing.T) {
 		t.Error(err)
 	}
 
-	// specify
+	// set target
 	exe_str = "./gomk -f test/test002.mk echo2"
 	expected = "echo echo2\necho2\n"
 	if err := tester(exe_str, expected); err != nil {
 		t.Error(err)
 	}
 
-	// set rules
+	// set multi-target
 	exe_str = "./gomk -f test/test002.mk echo2 echo1"
 	expected = "echo echo2\necho2\necho echo1\necho1\n"
+	if err := tester(exe_str, expected); err != nil {
+		t.Error(err)
+	}
+
+	// suppress echo
+	exe_str = "./gomk -f test/test002.mk echo3 echo1"
+	expected = "echo3\necho echo1\necho1\n"
 	if err := tester(exe_str, expected); err != nil {
 		t.Error(err)
 	}

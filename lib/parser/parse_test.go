@@ -17,6 +17,10 @@ func make_rule(name string, depends []string, commands []string) Rule {
 	return Rule{name, depends, cmds}
 }
 
+func make_rule2(name string, depends []string, commands []Command) Rule {
+	return Rule{name, depends, commands}
+}
+
 func make_rule_map(rules ...Rule) map[string]Rule {
 	rule_map := map[string]Rule{}
 	for _, rule := range rules {
@@ -284,6 +288,27 @@ $(VAR2) :
 		t.Error(err)
 	}
 
+	// rule have no-echo commands
+	str = `
+rule1 :
+	@echo echo1
+	echo echo2
+`
+	rules = make_rule_map(
+		make_rule2(
+			"rule1",
+			[]string{""},
+			[]Command{
+				Command{"@echo echo1", true},
+				Command{"echo echo2", true},
+			},
+		),
+	)
+	firsts = []string{"rule1"}
+	if err := tester_rules(str, firsts, rules); err != nil {
+		t.Error(err)
+	}
+
 	// simple rule
 	str = `
 VAR  = rule
@@ -317,6 +342,43 @@ $(VAR3) :
 			"$(VAR3)",
 			[]string{""},
 			[]string{"echo $(VAR3)"},
+		),
+	)
+	firsts = []string{"rule1"}
+	if err := tester_parser(str, varmap, firsts, rules); err != nil {
+		t.Error(err)
+	}
+
+	// rule have variable no-echo command
+	str = `
+ECHO = echo
+CMD1 = $(ECHO) rule1
+CMD2 = @$(ECHO) rule2
+
+rule1 :
+	$(CMD1)
+rule2 :
+	$(CMD2)
+`
+	varmap = map[string]string{
+		"ECHO": "echo",
+		"CMD1": "$(ECHO) rule1",
+		"CMD2": "@$(ECHO) rule2",
+	}
+	rules = make_rule_map(
+		make_rule2(
+			"rule1",
+			[]string{""},
+			[]Command{
+				Command{"$(CMD1)", true},
+			},
+		),
+		make_rule2(
+			"rule2",
+			[]string{""},
+			[]Command{
+				Command{"$(CMD2)", true},
+			},
 		),
 	)
 	firsts = []string{"rule1"}
@@ -399,6 +461,57 @@ func TestRun_preprocess(t *testing.T) {
 	if err := tester_parser(parser, expected_varmap, expected_firsts, expected_rules); err != nil {
 		t.Error(err)
 	}
+
+	// rule have variable no-echo command
+	parser = MakeParser(strings.NewReader(""))
+	parser.varmap = map[string]string{
+		"ECHO": "echo",
+		"CMD1": "$(ECHO) rule1",
+		"CMD2": "@$(ECHO) rule2",
+	}
+	parser.rules = make_rule_map(
+		make_rule2(
+			"rule1",
+			[]string{""},
+			[]Command{
+				Command{"$(CMD1)", true},
+			},
+		),
+		make_rule2(
+			"rule2",
+			[]string{""},
+			[]Command{
+				Command{"$(CMD2)", true},
+			},
+		),
+	)
+	parser.firsts = []string{"rule1"}
+
+	expected_varmap = map[string]string{
+		"ECHO": "echo",
+		"CMD1": "echo rule1",
+		"CMD2": "@echo rule2",
+	}
+	expected_rules = make_rule_map(
+		make_rule2(
+			"rule1",
+			[]string{""},
+			[]Command{
+				Command{"echo rule1", true},
+			},
+		),
+		make_rule2(
+			"rule2",
+			[]string{""},
+			[]Command{
+				Command{"echo rule2", false},
+			},
+		),
+	)
+	expected_firsts = []string{"rule1"}
+	if err := tester_parser(parser, expected_varmap, expected_firsts, expected_rules); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestRun_makeRule(t *testing.T) {
@@ -461,6 +574,47 @@ func TestRun_makeRule(t *testing.T) {
 		),
 	)
 	expected_firsts := []string{"rule2", "rule3"}
+	if err := tester_parser(parser, expected_firsts, expected_rules); err != nil {
+		t.Error(err)
+	}
+
+	// rule have variable no-echo command
+	parser = MakeParser(strings.NewReader(""))
+	parser.rules = make_rule_map(
+		make_rule2(
+			"rule1",
+			[]string{""},
+			[]Command{
+				Command{"echo rule1", true},
+			},
+		),
+		make_rule2(
+			"rule2",
+			[]string{""},
+			[]Command{
+				Command{"echo rule2", false},
+			},
+		),
+	)
+	parser.firsts = []string{"rule1"}
+
+	expected_rules = make_rule_map(
+		make_rule2(
+			"rule1",
+			[]string{},
+			[]Command{
+				Command{"echo rule1", true},
+			},
+		),
+		make_rule2(
+			"rule2",
+			[]string{},
+			[]Command{
+				Command{"echo rule2", false},
+			},
+		),
+	)
+	expected_firsts = []string{"rule1"}
 	if err := tester_parser(parser, expected_firsts, expected_rules); err != nil {
 		t.Error(err)
 	}

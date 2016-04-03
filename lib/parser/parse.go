@@ -162,7 +162,13 @@ func (o *Parser) preprocess() error {
 		for _, cmd := range rule.Commands {
 			v := cmd.Exestr
 			w := o.resolveReference(v)
-			commands = append(commands, Command{w, cmd.NeedEcho})
+
+			// command echo flag
+			if strings.HasPrefix(w, "@") {
+				commands = append(commands, Command{w[1:], false})
+			} else {
+				commands = append(commands, Command{w, true})
+			}
 		}
 
 		// resolve rule name
