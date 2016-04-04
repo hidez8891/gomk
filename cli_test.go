@@ -65,7 +65,7 @@ func TestRun_fileFlag(t *testing.T) {
 }
 
 func TestRun_targetRules(t *testing.T) {
-	tester := func(exe_str, expected string) error {
+	tester := func(exe_str, expected_out, expected_err string) error {
 		outStream, errStream := new(bytes.Buffer), new(bytes.Buffer)
 		cli := &CLI{outStream: outStream, errStream: errStream}
 
@@ -76,12 +76,12 @@ func TestRun_targetRules(t *testing.T) {
 			return errors.New(fmt.Sprintf("expected %d to eq %d", status, ExitCodeOK))
 		}
 
-		if outStream.String() != expected {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", outStream.String(), expected))
+		if outStream.String() != expected_out {
+			return errors.New(fmt.Sprintf("expected %q to eq %q", outStream.String(), expected_out))
 		}
 
-		if errStream.String() != "" {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", errStream.String(), ""))
+		if errStream.String() != expected_err {
+			return errors.New(fmt.Sprintf("expected %q to eq %q", errStream.String(), expected_err))
 		}
 
 		return nil
@@ -89,29 +89,41 @@ func TestRun_targetRules(t *testing.T) {
 
 	// default rule
 	exe_str := "./gomk -f test/test002.mk"
-	expected := "echo echo1\necho1\necho echo2\necho2\n"
-	if err := tester(exe_str, expected); err != nil {
+	expected_out := "echo echo1\necho1\necho echo2\necho2\n"
+	expected_err := ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
 		t.Error(err)
 	}
 
 	// set target
 	exe_str = "./gomk -f test/test002.mk echo2"
-	expected = "echo echo2\necho2\n"
-	if err := tester(exe_str, expected); err != nil {
+	expected_out = "echo echo2\necho2\n"
+	expected_err = ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
 		t.Error(err)
 	}
 
 	// set multi-target
 	exe_str = "./gomk -f test/test002.mk echo2 echo1"
-	expected = "echo echo2\necho2\necho echo1\necho1\n"
-	if err := tester(exe_str, expected); err != nil {
+	expected_out = "echo echo2\necho2\necho echo1\necho1\n"
+	expected_err = ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
 		t.Error(err)
 	}
 
 	// suppress echo
 	exe_str = "./gomk -f test/test002.mk echo3 echo1"
-	expected = "echo3\necho echo1\necho1\n"
-	if err := tester(exe_str, expected); err != nil {
+	expected_out = "echo3\necho echo1\necho1\n"
+	expected_err = ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
+		t.Error(err)
+	}
+
+	// loop rules
+	exe_str = "./gomk -f test/test003.mk"
+	expected_out = "\"rule3\"\n\"rule2\"\n\"rule1\"\n"
+	expected_err = "Circular rule3 <- rule1 dependency dropped\n"
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
 		t.Error(err)
 	}
 }

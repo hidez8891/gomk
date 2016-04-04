@@ -84,7 +84,7 @@ func (cli *CLI) Run(args []string) int {
 
 	// Run targets
 	for _, target := range targets {
-		if err := cli.runRules(rules, target); err != nil {
+		if err := cli.runRules(rules, target, []string{}); err != nil {
 			fmt.Fprintf(cli.errStream, "%s\n", err)
 			return ExitCodeError
 		}
@@ -116,14 +116,19 @@ func closeMakefile(fd *os.File) {
 	fd.Close()
 }
 
-func (cli *CLI) runRules(rules *parser.Rules, target string) error {
+func (cli *CLI) runRules(rules *parser.Rules, target string, parents []string) error {
 	rule, ok := rules.Get(target)
 	if !ok {
 		return errors.New("Not found make rule " + target)
 	}
 
 	for _, depend := range rule.Depends {
-		if err := cli.runRules(rules, depend); err != nil {
+		if contains(parents, depend) {
+			fmt.Fprintf(cli.errStream, "Circular %s <- %s dependency dropped\n", target, depend)
+			continue
+		}
+
+		if err := cli.runRules(rules, depend, append(parents, target)); err != nil {
 			return err
 		}
 	}
@@ -139,4 +144,13 @@ func (cli *CLI) runRules(rules *parser.Rules, target string) error {
 	}
 
 	return nil
+}
+
+func contains(array []string, target string) bool {
+	for _, e := range array {
+		if e == target {
+			return true
+		}
+	}
+	return false
 }
