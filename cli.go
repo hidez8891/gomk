@@ -117,30 +117,55 @@ func closeMakefile(fd *os.File) {
 }
 
 func (cli *CLI) runRules(rules *parser.Rules, target string, parents []string) error {
+	rule_defined := false
 	rule, ok := rules.Get(target)
-	if !ok {
+	if ok {
+		rule_defined = true
+	}
+
+	target_t, err := mtime(target)
+	if err != nil {
+		target_t = 0
+	}
+
+	if target_t == 0 && !rule_defined {
 		return errors.New("Not found make rule " + target)
 	}
 
+	do_execute := false
 	for _, depend := range rule.Depends {
 		if contains(parents, depend) {
 			fmt.Fprintf(cli.errStream, "Circular %s <- %s dependency dropped\n", target, depend)
+			do_execute = true // test
 			continue
 		}
 
 		if err := cli.runRules(rules, depend, append(parents, target)); err != nil {
 			return err
 		}
+
+		if depend_t, err := mtime(depend); err != nil {
+			do_execute = true
+		} else if target_t < depend_t {
+			do_execute = true
+		}
+	}
+	if len(rule.Depends) == 0 {
+		do_execute = true
 	}
 
-	runner := runner.New(cli.outStream, cli.errStream)
-	for _, cmd := range rule.Commands {
-		if cmd.NeedEcho {
-			fmt.Fprintf(cli.outStream, "%s\n", cmd.Exestr)
+	if do_execute {
+		runner := runner.New(cli.outStream, cli.errStream)
+		for _, cmd := range rule.Commands {
+			if cmd.NeedEcho {
+				fmt.Fprintf(cli.outStream, "%s\n", cmd.Exestr)
+			}
+			if err := runner.Run(cmd.Exestr); err != nil {
+				return err
+			}
 		}
-		if err := runner.Run(cmd.Exestr); err != nil {
-			return err
-		}
+	} else if len(parents) == 0 {
+		fmt.Fprintf(cli.outStream, "'%s' is up to date\n", target)
 	}
 
 	return nil
@@ -153,4 +178,13 @@ func contains(array []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func mtime(path string) (int64, error) {
+	fs, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+
+	return fs.ModTime().UnixNano(), nil
 }

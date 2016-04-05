@@ -126,4 +126,27 @@ func TestRun_targetRules(t *testing.T) {
 	if err := tester(exe_str, expected_out, expected_err); err != nil {
 		t.Error(err)
 	}
+
+	// file update
+	exe_str = "./gomk -f test/test004.mk init"
+	expected_out = "init\n"
+	expected_err = ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
+		t.Error(err)
+	}
+	exe_str = "./gomk -f test/test004.mk file1.tmp"
+	expected_out = "file2: run\nfile1: run\n"
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
+		t.Error(err)
+	}
+	exe_str = "./gomk -f test/test004.mk file1.tmp"
+	expected_out = "'file1.tmp' is up to date\n"
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
+		t.Error(err)
+	}
+	exe_str = "./gomk -f test/test004.mk clean"
+	expected_out = ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
+		t.Error(err)
+	}
 }
