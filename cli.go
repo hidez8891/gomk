@@ -84,7 +84,7 @@ func (cli *CLI) Run(args []string) int {
 
 	// Run targets
 	for _, target := range targets {
-		if err := cli.runRules(rules, target, []string{}); err != nil {
+		if err := cli.runRules(rules, target); err != nil {
 			fmt.Fprintf(cli.errStream, "%s\n", err)
 			return ExitCodeError
 		}
@@ -116,56 +116,60 @@ func closeMakefile(fd *os.File) {
 	fd.Close()
 }
 
-func (cli *CLI) runRules(rules *parser.Rules, target string, parents []string) error {
-	rule_defined := false
-	rule, ok := rules.Get(target)
-	if ok {
-		rule_defined = true
+func (cli *CLI) runRules(rules *parser.Rules, root string) error {
+	pre_time := int64(0)
+	pre_target := ""
+	at_least_one_running := false
+
+	schedule := cli.makeExecuteSchedule(rules, root)
+	if len(schedule) == 0 {
+		return nil
 	}
 
-	target_t, err := mtime(target)
-	if err != nil {
-		target_t = 0
-	}
+	for _, target := range schedule {
+		do_execute := true
 
-	if target_t == 0 && !rule_defined {
-		return errors.New("Not found make rule " + target)
-	}
+		target_t, err := mtime(target)
+		if err != nil {
+			target_t = 0
+		}
 
-	do_execute := false
-	for _, depend := range rule.Depends {
-		if contains(parents, depend) {
-			fmt.Fprintf(cli.errStream, "Circular %s <- %s dependency dropped\n", target, depend)
-			do_execute = true // test
+		rule, ok := rules.Get(target)
+		if target_t == 0 && !ok {
+			return errors.New("Not found make rule " + target)
+		}
+
+		if !ok {
+			do_execute = false
+		}
+
+		if contains(rule.Depends, pre_target) && pre_time < target_t {
+			do_execute = false
+		}
+
+		pre_target = target
+		pre_time = target_t
+
+		if !do_execute {
 			continue
 		}
 
-		if err := cli.runRules(rules, depend, append(parents, target)); err != nil {
-			return err
-		}
-
-		if depend_t, err := mtime(depend); err != nil {
-			do_execute = true
-		} else if target_t < depend_t {
-			do_execute = true
-		}
-	}
-	if len(rule.Depends) == 0 {
-		do_execute = true
-	}
-
-	if do_execute {
 		runner := runner.New(cli.outStream, cli.errStream)
 		for _, cmd := range rule.Commands {
 			if cmd.NeedEcho {
 				fmt.Fprintf(cli.outStream, "%s\n", cmd.Exestr)
 			}
+
 			if err := runner.Run(cmd.Exestr); err != nil {
 				return err
 			}
 		}
-	} else if len(parents) == 0 {
-		fmt.Fprintf(cli.outStream, "'%s' is up to date\n", target)
+
+		at_least_one_running = true
+	}
+
+	if !at_least_one_running {
+		fmt.Fprintf(cli.outStream, "'%s' is up to date\n", root)
 	}
 
 	return nil
@@ -187,4 +191,31 @@ func mtime(path string) (int64, error) {
 	}
 
 	return fs.ModTime().UnixNano(), nil
+}
+
+func (cli *CLI) makeExecuteSchedule(rules *parser.Rules, target string) []string {
+	return cli.makeExecuteScheduleImpl(rules, target, []string{}, []string{})
+}
+
+func (cli *CLI) makeExecuteScheduleImpl(rules *parser.Rules, target string, parent, schedule []string) []string {
+	if contains(schedule, target) {
+		return schedule
+	}
+
+	rule, ok := rules.Get(target)
+	if !ok {
+		return append(schedule, target)
+	}
+
+	parent = append(parent, target)
+	for _, depend := range rule.Depends {
+		if contains(parent, depend) {
+			fmt.Fprintf(cli.errStream, "Circular %s <- %s dependency dropped\n", target, depend)
+			continue
+		}
+
+		schedule = cli.makeExecuteScheduleImpl(rules, depend, parent, schedule)
+	}
+
+	return append(schedule, target)
 }
