@@ -56,27 +56,17 @@ func (cli *CLI) Run(args []string) int {
 		return ExitCodeError
 	}
 
-	// Open makefile
-	reader, err := openMakefile(file)
-	if err != nil {
-		fmt.Fprintf(cli.errStream, "%s\n", err)
-		return ExitCodeError
-	}
-	defer closeMakefile(reader)
-
-	// Parse makefile
-	rules, err := parser.Parse(reader)
-	if err != nil {
-		fmt.Fprintf(cli.errStream, "%s\n", err)
-		return ExitCodeError
-	}
-	if len(rules.Rules()) == 0 {
-		fmt.Fprintf(cli.errStream, "Not defined make rule\n")
-		return ExitCodeError
-	}
-
 	// Get targets
 	targets := flags.Args()
+
+	// Parse makefile
+	rules, err := cli.parseMakefile(file)
+	if err != nil {
+		fmt.Fprintf(cli.errStream, "%s\n", err)
+		return ExitCodeError
+	}
+
+	// if not defined target, set default target
 	if len(targets) == 0 {
 		targets = rules.Firsts()
 	}
@@ -90,6 +80,25 @@ func (cli *CLI) Run(args []string) int {
 	}
 
 	return ExitCodeOK
+}
+
+func (cli *CLI) parseMakefile(path string) (*parser.Rules, error) {
+	reader, err := openMakefile(path)
+	if err != nil {
+		return nil, err
+	}
+	defer closeMakefile(reader)
+
+	rules, err := parser.Parse(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rules.Rules()) == 0 {
+		return nil, errors.New("Not defined make rule")
+	}
+
+	return rules, nil
 }
 
 func (cli *CLI) runRules(rules *parser.Rules, root string) error {
