@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 )
 
 import (
@@ -51,7 +50,7 @@ func (cli *CLI) Run(args []string) int {
 	}
 
 	// Get makefile path
-	file, err := getMakefilePath(file)
+	file, err := makefilePath(file)
 	if err != nil {
 		fmt.Fprintf(cli.errStream, "Not found %s\n", file)
 		return ExitCodeError
@@ -93,29 +92,6 @@ func (cli *CLI) Run(args []string) int {
 	return ExitCodeOK
 }
 
-func getMakefilePath(file string) (path string, err error) {
-	if file != "" {
-		path = file
-	} else {
-		path = "Makefile"
-	}
-
-	_, err = os.Stat(path)
-	return
-}
-
-func openMakefile(path string) (*os.File, error) {
-	fd, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	return fd, nil
-}
-
-func closeMakefile(fd *os.File) {
-	fd.Close()
-}
-
 func (cli *CLI) runRules(rules *parser.Rules, root string) error {
 	pre_time := int64(0)
 	pre_target := ""
@@ -129,7 +105,7 @@ func (cli *CLI) runRules(rules *parser.Rules, root string) error {
 	for _, target := range schedule {
 		do_execute := true
 
-		target_t, err := mtime(target)
+		target_t, err := modTime(target)
 		if err != nil {
 			target_t = 0
 		}
@@ -143,7 +119,7 @@ func (cli *CLI) runRules(rules *parser.Rules, root string) error {
 			do_execute = false
 		}
 
-		if contains(rule.Depends, pre_target) && pre_time < target_t {
+		if inArray(rule.Depends, pre_target) && pre_time < target_t {
 			do_execute = false
 		}
 
@@ -175,30 +151,12 @@ func (cli *CLI) runRules(rules *parser.Rules, root string) error {
 	return nil
 }
 
-func contains(array []string, target string) bool {
-	for _, e := range array {
-		if e == target {
-			return true
-		}
-	}
-	return false
-}
-
-func mtime(path string) (int64, error) {
-	fs, err := os.Stat(path)
-	if err != nil {
-		return 0, err
-	}
-
-	return fs.ModTime().UnixNano(), nil
-}
-
 func (cli *CLI) makeExecuteSchedule(rules *parser.Rules, target string) []string {
 	return cli.makeExecuteScheduleImpl(rules, target, []string{}, []string{})
 }
 
 func (cli *CLI) makeExecuteScheduleImpl(rules *parser.Rules, target string, parent, schedule []string) []string {
-	if contains(schedule, target) {
+	if inArray(schedule, target) {
 		return schedule
 	}
 
@@ -209,7 +167,7 @@ func (cli *CLI) makeExecuteScheduleImpl(rules *parser.Rules, target string, pare
 
 	parent = append(parent, target)
 	for _, depend := range rule.Depends {
-		if contains(parent, depend) {
+		if inArray(parent, depend) {
 			fmt.Fprintf(cli.errStream, "Circular %s <- %s dependency dropped\n", target, depend)
 			continue
 		}
