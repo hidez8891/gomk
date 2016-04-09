@@ -1,39 +1,43 @@
 package parser
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func make_rule(name string, depends []string, commands []string) Rule {
+func make_parser(r io.Reader) *Parser {
+	return &Parser{
+		scanner: bufio.NewScanner(r),
+		buffer:  []string{},
+		varmap:  map[string]string{},
+		targets: map[string]int{},
+		rules:   []Rule{},
+	}
+}
+
+func make_rule(depends []string, commands []string) Rule {
 	cmds := []Command{}
 	for _, cmd := range commands {
 		cmds = append(cmds, Command{cmd, true})
 	}
 
-	return Rule{name, depends, cmds}
+	return Rule{depends, cmds}
 }
 
-func make_rule2(name string, depends []string, commands []Command) Rule {
-	return Rule{name, depends, commands}
-}
-
-func make_rule_map(rules ...Rule) map[string]Rule {
-	rule_map := map[string]Rule{}
-	for _, rule := range rules {
-		rule_map[rule.Name] = rule
-	}
-	return rule_map
+func make_rule2(depends []string, commands []Command) Rule {
+	return Rule{depends, commands}
 }
 
 func TestRun_readAndParse(t *testing.T) {
 	// parser varmap tester
 	tester_varmap := func(str string, varmap map[string]string) error {
 		r := strings.NewReader(str)
-		parser := MakeParser(r)
+		parser := make_parser(r)
 
 		if err := parser.readAndParse(); err != nil {
 			return errors.New(fmt.Sprintf("error happened: %q", err))
@@ -47,16 +51,16 @@ func TestRun_readAndParse(t *testing.T) {
 	}
 
 	// parser rules tester
-	tester_rules := func(str string, firsts []string, rules map[string]Rule) error {
+	tester_rules := func(str string, targets map[string]int, rules []Rule) error {
 		r := strings.NewReader(str)
-		parser := MakeParser(r)
+		parser := make_parser(r)
 
 		if err := parser.readAndParse(); err != nil {
 			return errors.New(fmt.Sprintf("error happened: %q", err))
 		}
 
-		if !reflect.DeepEqual(parser.firsts, firsts) {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.firsts, firsts))
+		if !reflect.DeepEqual(parser.targets, targets) {
+			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.targets, targets))
 		}
 
 		if !reflect.DeepEqual(parser.rules, rules) {
@@ -67,9 +71,9 @@ func TestRun_readAndParse(t *testing.T) {
 	}
 
 	// parser tester
-	tester_parser := func(str string, varmap map[string]string, firsts []string, rules map[string]Rule) error {
+	tester_parser := func(str string, varmap map[string]string, targets map[string]int, rules []Rule) error {
 		r := strings.NewReader(str)
-		parser := MakeParser(r)
+		parser := make_parser(r)
 
 		if err := parser.readAndParse(); err != nil {
 			return errors.New(fmt.Sprintf("error happened: %q", err))
@@ -79,8 +83,8 @@ func TestRun_readAndParse(t *testing.T) {
 			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.varmap, varmap))
 		}
 
-		if !reflect.DeepEqual(parser.firsts, firsts) {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.firsts, firsts))
+		if !reflect.DeepEqual(parser.targets, targets) {
+			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.targets, targets))
 		}
 
 		if !reflect.DeepEqual(parser.rules, rules) {
@@ -191,15 +195,16 @@ VAR1 = var2
 	str = `
 rule1 : 
 `
-	rules := make_rule_map(
+	rules := []Rule{
 		make_rule(
-			"rule1",
 			[]string{""},
 			[]string{},
 		),
-	)
-	firsts := []string{"rule1"}
-	if err := tester_rules(str, firsts, rules); err != nil {
+	}
+	targets := map[string]int{
+		"rule1": 0,
+	}
+	if err := tester_rules(str, targets, rules); err != nil {
 		t.Error(err)
 	}
 
@@ -212,25 +217,26 @@ rule2 : rule3
 rule3 :
 	# comment rule3
 `
-	rules = make_rule_map(
+	rules = []Rule{
 		make_rule(
-			"rule1",
 			[]string{"rule2  rule3"},
 			[]string{},
 		),
 		make_rule(
-			"rule2",
 			[]string{"rule3"},
 			[]string{},
 		),
 		make_rule(
-			"rule3",
 			[]string{""},
 			[]string{},
 		),
-	)
-	firsts = []string{"rule1"}
-	if err := tester_rules(str, firsts, rules); err != nil {
+	}
+	targets = map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+		"rule3": 2,
+	}
+	if err := tester_rules(str, targets, rules); err != nil {
 		t.Error(err)
 	}
 
@@ -242,9 +248,8 @@ rule1 : rule2
 rule2 :
 	echo rule2
 `
-	rules = make_rule_map(
+	rules = []Rule{
 		make_rule(
-			"rule1",
 			[]string{"rule2"},
 			[]string{
 				"echo rule1",
@@ -252,15 +257,17 @@ rule2 :
 			},
 		),
 		make_rule(
-			"rule2",
 			[]string{""},
 			[]string{
 				"echo rule2",
 			},
 		),
-	)
-	firsts = []string{"rule1"}
-	if err := tester_rules(str, firsts, rules); err != nil {
+	}
+	targets = map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+	}
+	if err := tester_rules(str, targets, rules); err != nil {
 		t.Error(err)
 	}
 
@@ -271,20 +278,21 @@ $(VAR1) : $(VAR2)
 $(VAR2) :
 	echo $(VAR2)
 `
-	rules = make_rule_map(
+	rules = []Rule{
 		make_rule(
-			"$(VAR1)",
 			[]string{"$(VAR2)"},
 			[]string{"echo $(VAR1)"},
 		),
 		make_rule(
-			"$(VAR2)",
 			[]string{""},
 			[]string{"echo $(VAR2)"},
 		),
-	)
-	firsts = []string{"$(VAR1)"}
-	if err := tester_rules(str, firsts, rules); err != nil {
+	}
+	targets = map[string]int{
+		"$(VAR1)": 0,
+		"$(VAR2)": 1,
+	}
+	if err := tester_rules(str, targets, rules); err != nil {
 		t.Error(err)
 	}
 
@@ -294,18 +302,19 @@ rule1 :
 	@echo echo1
 	echo echo2
 `
-	rules = make_rule_map(
+	rules = []Rule{
 		make_rule2(
-			"rule1",
 			[]string{""},
 			[]Command{
 				Command{"@echo echo1", true},
 				Command{"echo echo2", true},
 			},
 		),
-	)
-	firsts = []string{"rule1"}
-	if err := tester_rules(str, firsts, rules); err != nil {
+	}
+	targets = map[string]int{
+		"rule1": 0,
+	}
+	if err := tester_rules(str, targets, rules); err != nil {
 		t.Error(err)
 	}
 
@@ -327,25 +336,26 @@ $(VAR3) :
 		"VAR2": "$(VAR)2",
 		"VAR3": "rule3",
 	}
-	rules = make_rule_map(
+	rules = []Rule{
 		make_rule(
-			"rule1",
 			[]string{"$(VAR2)"},
 			[]string{"echo rule1"},
 		),
 		make_rule(
-			"rule2",
 			[]string{"rule3"},
 			[]string{"echo $(VAR2)"},
 		),
 		make_rule(
-			"$(VAR3)",
 			[]string{""},
 			[]string{"echo $(VAR3)"},
 		),
-	)
-	firsts = []string{"rule1"}
-	if err := tester_parser(str, varmap, firsts, rules); err != nil {
+	}
+	targets = map[string]int{
+		"rule1":   0,
+		"rule2":   1,
+		"$(VAR3)": 2,
+	}
+	if err := tester_parser(str, varmap, targets, rules); err != nil {
 		t.Error(err)
 	}
 
@@ -365,31 +375,32 @@ rule2 :
 		"CMD1": "$(ECHO) rule1",
 		"CMD2": "@$(ECHO) rule2",
 	}
-	rules = make_rule_map(
+	rules = []Rule{
 		make_rule2(
-			"rule1",
 			[]string{""},
 			[]Command{
 				Command{"$(CMD1)", true},
 			},
 		),
 		make_rule2(
-			"rule2",
 			[]string{""},
 			[]Command{
 				Command{"$(CMD2)", true},
 			},
 		),
-	)
-	firsts = []string{"rule1"}
-	if err := tester_parser(str, varmap, firsts, rules); err != nil {
+	}
+	targets = map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+	}
+	if err := tester_parser(str, varmap, targets, rules); err != nil {
 		t.Error(err)
 	}
 }
 
 func TestRun_preprocess(t *testing.T) {
 	// parser tester
-	tester_parser := func(parser *Parser, varmap map[string]string, firsts []string, rules map[string]Rule) error {
+	tester_parser := func(parser *Parser, varmap map[string]string, targets map[string]int, rules []Rule) error {
 		if err := parser.preprocess(); err != nil {
 			return errors.New(fmt.Sprintf("error happened: %q", err))
 		}
@@ -398,8 +409,8 @@ func TestRun_preprocess(t *testing.T) {
 			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.varmap, varmap))
 		}
 
-		if !reflect.DeepEqual(parser.firsts, firsts) {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.firsts, firsts))
+		if !reflect.DeepEqual(parser.targets, targets) {
+			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.targets, targets))
 		}
 
 		if !reflect.DeepEqual(parser.rules, rules) {
@@ -410,212 +421,154 @@ func TestRun_preprocess(t *testing.T) {
 	}
 
 	// reference resolve
-	parser := MakeParser(strings.NewReader(""))
+	parser := make_parser(strings.NewReader(""))
 	parser.varmap = map[string]string{
 		"VAR":  "rule",
 		"VAR2": "$(VAR)2",
 		"VAR3": "rule3",
 	}
-	parser.rules = make_rule_map(
+	parser.rules = []Rule{
 		make_rule(
-			"rule1",
 			[]string{"$(VAR2)"},
 			[]string{"echo rule1"},
 		),
 		make_rule(
-			"rule2",
 			[]string{"rule3"},
 			[]string{"echo $(VAR2)"},
 		),
 		make_rule(
-			"$(VAR3)",
 			[]string{""},
 			[]string{"echo $(VAR3)"},
 		),
-	)
-	parser.firsts = []string{"$(VAR3)"}
+	}
+	parser.targets = map[string]int{
+		"rule1":   0,
+		"rule2":   1,
+		"$(VAR3)": 2,
+	}
 
 	expected_varmap := map[string]string{
 		"VAR":  "rule",
 		"VAR2": "rule2",
 		"VAR3": "rule3",
 	}
-	expected_rules := make_rule_map(
+	expected_rules := []Rule{
 		make_rule(
-			"rule1",
 			[]string{"rule2"},
 			[]string{"echo rule1"},
 		),
 		make_rule(
-			"rule2",
 			[]string{"rule3"},
 			[]string{"echo rule2"},
 		),
 		make_rule(
-			"rule3",
-			[]string{""},
+			[]string{},
 			[]string{"echo rule3"},
 		),
-	)
-	expected_firsts := []string{"rule3"}
-	if err := tester_parser(parser, expected_varmap, expected_firsts, expected_rules); err != nil {
+	}
+	expected_targets := map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+		"rule3": 2,
+	}
+	if err := tester_parser(parser, expected_varmap, expected_targets, expected_rules); err != nil {
 		t.Error(err)
 	}
 
 	// rule have variable no-echo command
-	parser = MakeParser(strings.NewReader(""))
+	parser = make_parser(strings.NewReader(""))
 	parser.varmap = map[string]string{
 		"ECHO": "echo",
 		"CMD1": "$(ECHO) rule1",
 		"CMD2": "@$(ECHO) rule2",
 	}
-	parser.rules = make_rule_map(
+	parser.rules = []Rule{
 		make_rule2(
-			"rule1",
 			[]string{""},
 			[]Command{
 				Command{"$(CMD1)", true},
 			},
 		),
 		make_rule2(
-			"rule2",
 			[]string{""},
 			[]Command{
 				Command{"$(CMD2)", true},
 			},
 		),
-	)
-	parser.firsts = []string{"rule1"}
+	}
+	parser.targets = map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+	}
 
 	expected_varmap = map[string]string{
 		"ECHO": "echo",
 		"CMD1": "echo rule1",
 		"CMD2": "@echo rule2",
 	}
-	expected_rules = make_rule_map(
+	expected_rules = []Rule{
 		make_rule2(
-			"rule1",
-			[]string{""},
+			[]string{},
 			[]Command{
 				Command{"echo rule1", true},
 			},
 		),
 		make_rule2(
-			"rule2",
-			[]string{""},
+			[]string{},
 			[]Command{
 				Command{"echo rule2", false},
 			},
 		),
-	)
-	expected_firsts = []string{"rule1"}
-	if err := tester_parser(parser, expected_varmap, expected_firsts, expected_rules); err != nil {
-		t.Error(err)
 	}
-}
-
-func TestRun_makeRule(t *testing.T) {
-	// parser tester
-	tester_parser := func(parser *Parser, firsts []string, rules map[string]Rule) error {
-		if err := parser.makeRule(); err != nil {
-			return errors.New(fmt.Sprintf("error happened: %q", err))
-		}
-
-		if !reflect.DeepEqual(parser.firsts, firsts) {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.firsts, firsts))
-		}
-
-		if !reflect.DeepEqual(parser.rules, rules) {
-			return errors.New(fmt.Sprintf("expected %q to eq %q", parser.rules, rules))
-		}
-
-		return nil
+	expected_targets = map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+	}
+	if err := tester_parser(parser, expected_varmap, expected_targets, expected_rules); err != nil {
+		t.Error(err)
 	}
 
 	// multi target rule
-	parser := MakeParser(strings.NewReader(""))
-	parser.rules = make_rule_map(
+	parser = make_parser(strings.NewReader(""))
+	parser.varmap = map[string]string{}
+	parser.rules = []Rule{
 		make_rule(
-			"rule1",
 			[]string{"rule2  rule3"},
 			[]string{"echo rule1"},
 		),
 		make_rule(
-			"rule2  rule3",
 			[]string{""},
 			[]string{
 				"echo rule2",
 				"echo rule3",
 			},
 		),
-	)
-	parser.firsts = []string{"rule2  rule3"}
-	expected_rules := make_rule_map(
+	}
+	parser.targets = map[string]int{
+		"rule1":        0,
+		"rule2  rule3": 1,
+	}
+
+	expected_varmap = map[string]string{}
+	expected_rules = []Rule{
 		make_rule(
-			"rule1",
 			[]string{"rule2", "rule3"},
 			[]string{"echo rule1"},
 		),
 		make_rule(
-			"rule2",
 			[]string{},
 			[]string{
 				"echo rule2",
 				"echo rule3",
 			},
 		),
-		make_rule(
-			"rule3",
-			[]string{},
-			[]string{
-				"echo rule2",
-				"echo rule3",
-			},
-		),
-	)
-	expected_firsts := []string{"rule2", "rule3"}
-	if err := tester_parser(parser, expected_firsts, expected_rules); err != nil {
-		t.Error(err)
 	}
-
-	// rule have variable no-echo command
-	parser = MakeParser(strings.NewReader(""))
-	parser.rules = make_rule_map(
-		make_rule2(
-			"rule1",
-			[]string{""},
-			[]Command{
-				Command{"echo rule1", true},
-			},
-		),
-		make_rule2(
-			"rule2",
-			[]string{""},
-			[]Command{
-				Command{"echo rule2", false},
-			},
-		),
-	)
-	parser.firsts = []string{"rule1"}
-
-	expected_rules = make_rule_map(
-		make_rule2(
-			"rule1",
-			[]string{},
-			[]Command{
-				Command{"echo rule1", true},
-			},
-		),
-		make_rule2(
-			"rule2",
-			[]string{},
-			[]Command{
-				Command{"echo rule2", false},
-			},
-		),
-	)
-	expected_firsts = []string{"rule1"}
-	if err := tester_parser(parser, expected_firsts, expected_rules); err != nil {
+	expected_targets = map[string]int{
+		"rule1": 0,
+		"rule2": 1,
+		"rule3": 1,
+	}
+	if err := tester_parser(parser, expected_varmap, expected_targets, expected_rules); err != nil {
 		t.Error(err)
 	}
 }

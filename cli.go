@@ -68,7 +68,7 @@ func (cli *CLI) Run(args []string) int {
 
 	// if not defined target, set default target
 	if len(targets) == 0 {
-		targets = rules.Firsts()
+		targets = searchMapKeys(rules.Targets, 0)
 	}
 
 	// Run targets
@@ -82,7 +82,7 @@ func (cli *CLI) Run(args []string) int {
 	return ExitCodeOK
 }
 
-func (cli *CLI) parseMakefile(path string) (*parser.Rules, error) {
+func (cli *CLI) parseMakefile(path string) (*parser.MakeRule, error) {
 	reader, err := openMakefile(path)
 	if err != nil {
 		return nil, err
@@ -94,14 +94,14 @@ func (cli *CLI) parseMakefile(path string) (*parser.Rules, error) {
 		return nil, err
 	}
 
-	if len(rules.Rules()) == 0 {
+	if len(rules.Rules) == 0 {
 		return nil, errors.New("Not defined make rule")
 	}
 
 	return rules, nil
 }
 
-func (cli *CLI) runRules(rules *parser.Rules, root string) error {
+func (cli *CLI) runRules(rules *parser.MakeRule, root string) error {
 	pre_time := int64(0)
 	pre_target := ""
 	at_least_one_running := false
@@ -119,15 +119,15 @@ func (cli *CLI) runRules(rules *parser.Rules, root string) error {
 			target_t = 0
 		}
 
-		rule, ok := rules.Get(target)
+		id, ok := rules.Targets[target]
 		if target_t == 0 && !ok {
 			return errors.New("Not found make rule " + target)
 		}
-
 		if !ok {
 			do_execute = false
 		}
 
+		rule := rules.Rules[id]
 		if inArray(rule.Depends, pre_target) && pre_time < target_t {
 			do_execute = false
 		}
@@ -160,23 +160,39 @@ func (cli *CLI) runRules(rules *parser.Rules, root string) error {
 	return nil
 }
 
-func (cli *CLI) makeExecuteSchedule(rules *parser.Rules, target string) []string {
+func (cli *CLI) makeExecuteSchedule(rules *parser.MakeRule, target string) []string {
 	return cli.makeExecuteScheduleImpl(rules, target, []string{}, []string{})
 }
 
-func (cli *CLI) makeExecuteScheduleImpl(rules *parser.Rules, target string, parent, schedule []string) []string {
-	if inArray(schedule, target) {
+func (cli *CLI) makeExecuteScheduleImpl(rules *parser.MakeRule, target string, parent, schedule []string) []string {
+	inSameRule := func(keys []string, t string) bool {
+		id, ok := rules.Targets[t]
+		if !ok {
+			return false
+		}
+
+		for _, key := range keys {
+			key_id, _ := rules.Targets[key]
+			if key_id == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	if inSameRule(schedule, target) {
 		return schedule
 	}
 
-	rule, ok := rules.Get(target)
+	id, ok := rules.Targets[target]
 	if !ok {
 		return append(schedule, target)
 	}
+	rule := rules.Rules[id]
 
 	parent = append(parent, target)
 	for _, depend := range rule.Depends {
-		if inArray(parent, depend) {
+		if inSameRule(parent, depend) {
 			fmt.Fprintf(cli.errStream, "Circular %s <- %s dependency dropped\n", target, depend)
 			continue
 		}

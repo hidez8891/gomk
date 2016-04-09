@@ -157,4 +157,12 @@ func TestRun_targetRules(t *testing.T) {
 	if err := tester(exe_str, expected_out, expected_err); err != nil {
 		t.Error(err)
 	}
+
+	// deduplicate rules
+	exe_str = "./gomk -f test/test006.mk"
+	expected_out = "echo3 and echo4\necho1\necho2\n"
+	expected_err = ""
+	if err := tester(exe_str, expected_out, expected_err); err != nil {
+		t.Error(err)
+	}
 }
